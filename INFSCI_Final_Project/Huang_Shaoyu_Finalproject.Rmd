@@ -1,0 +1,32 @@
+---
+title: "Fall 2022: Final Project"
+author: "Shaoyu Huang"
+date: "2022-12-12"
+output:
+  html_document:
+    toc: yes
+---
+
+```{r, load_tidyverse}
+library(tidyverse)
+```
+
+```{r, load_ggpubr}
+library(ggpubr)
+```
+
+```{r, load_caret, message = FALSE}
+library(caret)
+```
+
+```{r child = 'Part1.Rmd'}
+```
+
+```{r child = 'Part2.Rmd'}
+```
+
+```{r child = 'Part3.Rmd'}
+```
+
+```{r child = 'Part4.Rmd'}
+```

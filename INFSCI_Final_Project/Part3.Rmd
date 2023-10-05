@@ -1,0 +1,528 @@
+# **Classification**
+```{r, binary_outcome}
+df_bi <- df_derived %>% mutate(o =  ifelse(outcome == 'event', 1, 0))
+```
+## Linear models
+
+First we use `glm()` to fit linear models.
+
+### Base features
+`mod_A, mod_B` and `mod_C` are models using *base features*.
+
+All linear additive features:
+```{r, linear_additive_feature_bi}
+mod_A <- glm(o ~ x1 + x2 + x3 + x4 + v1 + v2 + v3 + v4 + v5 + m, family = binomial, data = df_bi)
+```
+Interaction of the categorical input with all continuous inputs:
+```{r, interaction_cat_bi}
+mod_B <- glm(o ~ m * (x1 + x2 + x3 + x4 + v1 + v2 + v3 + v4 + v5), family = binomial, data = df_bi)
+```
+All pair-wise interactions of the continuous inputs:
+```{r, linear_pairwise_bi}
+mod_C <- glm(o ~ (x1 + x2 + x3 + x4 + v1 + v2 + v3 + v4 + v5) * (x1 + x2 + x3 + x4 + v1 + v2 + v3 + v4 + v5), family = binomial, data = df_bi)
+```
+
+### Expanded features
+`mod_D, mod_E` and `mod_F` are models using *expanded features*.
+
+Linear additive features:
+```{r, linear_additive_expand_bi}
+mod_D <- glm(o ~ x1 + x2 + x3 + x4 + v1 + v2 + v3 + v4 + v5 + m + w + z + t, family = binomial, data = df_bi)
+```
+Interaction of the categorical input with continuous features:
+```{r, interaction_cat_expand_bi}
+mod_E <- glm(o ~ m * (x1 + x2 + x3 + x4 + v1 + v2 + v3 + v4 + v5 + w + z + t), family = binomial, data = df_bi)
+```
+Pair-wise interactions between the continuous features:
+```{r, linear_pairwise_expand_bi}
+mod_F <- glm(o ~ (x1 + x2 + x3 + x4 + v1 + v2 + v3 + v4 + v5 + w + z + t) * (x1 + x2 + x3 + x4 + v1 + v2 + v3 + v4 + v5 + w + z + t), family = binomial, data = df_bi)
+```
+
+### Linear basis functions
+`mod_G, mod_H` and `mod_I` are models using *basis functions*.
+
+Linear additive features of 3 degree-of-freedom natural spline from derived features:
+```{r, linear_additive_lb_bi}
+mod_G <- glm(o ~ splines::ns(x5, 3) + splines::ns(w, 3) + splines::ns(z, 3) + splines::ns(t, 3), family = binomial, data = df_bi)
+```
+The linear sum of interactions between `x1, x2, x3, w` and other continuous features with derived features having degree 2:
+```{r, interaction_lb_bi}
+mod_H <- glm(o ~ (x1 + x2 + x3 + w) * (x1 + x2 + x3 + w) + x4 + v1 + v2 + v3 + v4 + v5 + z + I(z^2) + t + I(t^2), family = binomial, data = df_bi)
+```
+The interaction between the categorical variable and linear sum of interactions between `x1, x2, x3, w` and other continuous features with derived features having freedom 3:
+```{r, interaction_cat_lb_bi}
+mod_I <- glm(o ~ m * ((x1 + x2 + x3 + w) * (x1 + x2 + x3 + w) + x4 + v1 + v2 + v3 + v4 + v5 + splines::ns(z, 3) + splines::ns(t, 3) ), family = binomial, data = df_bi)
+```
+
+### Compare linear models
+
+```{r, extract_metric_bi}
+extract_metrics_bi <- function(mod_object, mod_name)
+{
+  broom::glance(mod_object) %>% 
+    mutate(model_name = mod_name)
+}
+purrr::map2_dfr(list(mod_A, mod_B, mod_C, mod_D,
+                                        mod_E, mod_F, mod_G, mod_H, mod_I),
+                                   LETTERS[1:9],
+                                   extract_metrics_bi) %>% 
+  select(model_name, AIC, BIC) %>% 
+  pivot_longer(c(AIC, BIC)) %>% 
+  ggplot(mapping = aes(x = model_name, y = value)) +
+  geom_point(size = 5) +
+  facet_wrap(~name, scales = 'free_y') +
+  theme_bw()
+```
+
+<font color=Blue>
+The `mod_H` has the best BIC and a relatively low AIC, which means it is the best model. `mod_F` and `mod_G` are the sub-optimal models.
+</font> 
+
+```{r, coefficient_summary_plot_bi}
+mod_H %>% 
+  coefplot::coefplot(intercept = FALSE) +
+  theme_bw()
+mod_F %>% 
+  coefplot::coefplot(intercept = FALSE) +
+  theme_bw()
+mod_G %>% 
+  coefplot::coefplot(intercept = FALSE) +
+  theme_bw()
+```
+
+```{r, coefficient_summary_bi}
+mod_H %>% summary()
+mod_F %>% summary()
+mod_G %>% summary()
+```
+
+<font color=Blue>
+The coefficients of interactions among `x1, x2, x3` are significant. Also, `w,z` seem to be important.
+</font> 
+
+## Bayesian linear models
+
+Besides `mod_H`, we choose `mod_F` as the second model since it is relatively better than other from the metrics we have in previous step.
+
+### Create design matrix
+```{r, design_matrix_bi}
+Xmat_H <- model.matrix(mod_H$formula, data = df_bi)
+Xmat_F <- model.matrix(mod_F$formula, data = df_bi)
+```
+
+```{r, info_bi}
+info_H <- list(
+  yobs = df_bi$o,
+  design_matrix = Xmat_H,
+  mu_beta = 0,
+  tau_beta = 50
+)
+info_F <- list(
+  yobs = df_bi$o,
+  design_matrix = Xmat_F,
+  mu_beta = 0,
+  tau_beta = 50
+)
+```
+
+### Laplace approximation
+
+```{r, logistic_logpost}
+logistic_logpost <- function(unknowns, my_info)
+{
+  # extract the design matrix and assign to X
+  X <- my_info$design_matrix
+  
+  # calculate the linear predictor
+  eta <- as.vector( X %*% as.matrix(unknowns))
+  
+  # calculate the event probability
+  mu <- boot::inv.logit(eta)
+  
+  # evaluate the log-likelihood
+  log_lik <- sum(dbinom(x = my_info$yobs,
+                        size = 1, 
+                        prob = mu,
+                        log = TRUE))
+  
+  # evaluate the log-prior
+  log_prior <- sum(dnorm(x = unknowns,
+                         mean = my_info$mu_beta,
+                         sd = my_info$tau_beta,
+                         log = TRUE))
+  
+  # sum together
+  log_lik + log_prior
+}
+```
+
+```{r, my_laplace_bi}
+my_laplace_bi <- function(start_guess, logpost_func, ...)
+{
+  # code adapted from the `LearnBayes`` function `laplace()`
+  fit <- optim(start_guess,
+               logpost_func,
+               gr = NULL,
+               ...,
+               method = "BFGS",
+               hessian = TRUE,
+               control = list(fnscale = -1, maxit = 5001))
+  
+  mode <- fit$par
+  post_var_matrix <- -solve(fit$hessian)
+  p <- length(mode)
+  int <- p/2 * log(2 * pi) + 0.5 * log(det(post_var_matrix)) + logpost_func(mode, ...)
+  # package all of the results into a list
+  list(mode = mode,
+       var_matrix = post_var_matrix,
+       log_evidence = int,
+       converge = ifelse(fit$convergence == 0,
+                         "YES", 
+                         "NO"),
+       iter_counts = as.numeric(fit$counts[1]))
+}
+```
+
+```{r, laplace_model_bi, eval = FALSE}
+my_laplace_bi(rep(0, ncol(Xmat_H)), logistic_logpost, info_H) %>% readr::write_rds("laplace_bi_H_model.rds")
+my_laplace_bi(rep(0, ncol(Xmat_F)), logistic_logpost, info_F) %>% readr::write_rds("laplace_bi_F_model.rds")
+```
+
+```{r, laplace_bi_load}
+laplace_H <- readr::read_rds("laplace_bi_H_model.rds")
+laplace_F <- readr::read_rds("laplace_bi_F_model.rds")
+```
+As shown below, the optimization schemes for both models converged.
+```{r, converge_laplace_bi}
+laplace_H$converge
+laplace_F$converge
+```
+
+### Compare models from Laplace approximation
+
+```{r, log_evidence_bi}
+exp(laplace_H$log_evidence - laplace_F$log_evidence)
+```
+<font color=Blue>
+A Bayes Factor greater than 1 represents there is more “evidence” to support the “numerator model” compared to the model in the denominator. As shown above the Bayes Factor is on the order of 1E83. This is a huge number! Essentially, the log-evidence (via the Bayes Factor) feels there is no reason to consider `mod_F` compared to `mod_H`.
+</font>
+
+```{r, plot_coef_laplace_bi}
+viz_post_coefs_bi <- function(post_means, post_sds, xnames)
+{
+  tibble::tibble(
+    mu = post_means,
+    sd = post_sds,
+    x = xnames
+  ) %>% 
+    mutate(x = factor(x, levels = xnames)) %>% 
+    ggplot(mapping = aes(x = x)) +
+    geom_hline(yintercept = 0, color = 'grey', linetype = 'dashed') +
+    geom_point(mapping = aes(y = mu)) +
+    geom_linerange(mapping = aes(ymin = mu - 2 * sd,
+                                 ymax = mu + 2 * sd,
+                                 group = x)) +
+    labs(x = 'feature', y = 'coefficient value') +
+    coord_flip() +
+    theme_bw()
+}
+
+viz_post_coefs_bi(laplace_H$mode[1:ncol(Xmat_H)],
+               sqrt(diag(laplace_H$var_matrix)[1:ncol(Xmat_H)]),
+               colnames(Xmat_H))
+```
+
+## Linear model predictions
+
+We use the same grid from Part2.
+```{r, generate_glm_post_samples}
+generate_glm_post_samples <- function(mvn_result, num_samples)
+{
+  # specify the number of unknown beta parameters
+  length_beta <- length(mvn_result$mode)
+  
+  # generate the random samples
+  beta_samples <- MASS::mvrnorm(n = num_samples,
+                                mu = mvn_result$mode,
+                                Sigma = mvn_result$var_matrix)
+  
+  # change the data type and name
+  beta_samples %>% 
+    as.data.frame() %>% tibble::as_tibble() %>% 
+    purrr::set_names(sprintf("beta_%02d", (1:length_beta) - 1))
+}
+```
+
+```{r, post_logistic_pred_samples}
+post_logistic_pred_samples <- function(Xnew, Bmat)
+{
+  # calculate the linear predictor at all prediction points and posterior samples
+  eta_mat <- Xnew %*% t(Bmat)
+  
+  # calculate the event probability
+  mu_mat <- boot::inv.logit(eta_mat)
+  
+  # book keeping
+  list(eta_mat = eta_mat, mu_mat = mu_mat)
+}
+
+```
+
+```{r, summarize_logistic_pred_from_laplace}
+summarize_logistic_pred_from_laplace <- function(mvn_result, Xtest, num_samples)
+{
+  # generate posterior samples of the beta parameters
+  betas <- generate_glm_post_samples(mvn_result, num_samples)
+  
+  # data type conversion
+  betas <- as.matrix(betas)
+  
+  # make posterior predictions on the test set
+  pred_test <- post_logistic_pred_samples(Xtest, betas)
+  
+  # calculate summary statistics on the posterior predicted probability
+  # summarize over the posterior samples
+  
+  # posterior mean, should you summarize along rows (rowMeans) or 
+  # summarize down columns (colMeans) ???
+  mu_avg <- rowMeans(pred_test$mu_mat)
+  
+  # posterior quantiles
+  mu_q05 <- apply(pred_test$mu_mat, 1, stats::quantile, probs = 0.05)
+  mu_q95 <- apply(pred_test$mu_mat, 1, stats::quantile, probs = 0.95)
+  
+  # book keeping
+  tibble::tibble(
+    mu_avg = mu_avg,
+    mu_q05 = mu_q05,
+    mu_q95 = mu_q95
+  ) %>% 
+    tibble::rowid_to_column("pred_id")
+}
+```
+
+```{r, Xviz}
+Xviz_H <- model.matrix( ~ (x1 + x2 + x3 + w) * (x1 + x2 + x3 + w) + x4 + v1 + v2 + v3 + v4 + v5 + z + I(z^2) + t + I(t^2), data = viz_grid) 
+Xviz_F <- model.matrix( ~ (x1 + x2 + x3 + x4 + v1 + v2 + v3 + v4 + v5 + w + z + t) * (x1 + x2 + x3 + x4 + v1 + v2 + v3 + v4 + v5 + w + z + t), data = viz_grid) 
+```
+
+```{r, post_pred_summary}
+set.seed(2022)
+post_pred_summary_H <- summarize_logistic_pred_from_laplace(laplace_H, Xviz_H, 2500)
+
+post_pred_summary_F <- summarize_logistic_pred_from_laplace(laplace_F, Xviz_F, 2500)
+```
+
+```{r, viz_bayes_logpost_preds}
+viz_bayes_logpost_preds <- function(post_pred_summary, input_df)
+{
+  post_pred_summary %>% 
+    left_join(input_df %>% tibble::rowid_to_column('pred_id'),
+              by = 'pred_id') %>% 
+    ggplot(mapping = aes(x = x1)) +
+    geom_ribbon(mapping = aes(ymin = mu_q05,
+                              ymax = mu_q95,
+                              group = w),
+                alpha = 0.25) +
+    geom_line(mapping = aes(y = mu_avg,
+                            group = w),
+              linewidth = 1.15) +
+    facet_wrap( ~ w, labeller = 'label_both') +
+    labs(y = "event probability") +
+    theme_bw()
+}
+```
+
+```{r, graph_pred_bi}
+viz_bayes_logpost_preds(post_pred_summary_H, viz_grid)
+viz_bayes_logpost_preds(post_pred_summary_F, viz_grid)
+```
+
+<font color=Blue>
+The trends are not the same for these 2 selected models.
+</font>
+
+## Train/Tune with resampling
+
+We use the same 5 fold cross-validation with 5 repeats to train the linear models as Part 2. And we use `Accuracy` as the metric.
+```{r, set_bi_control}
+my_ctrl <- trainControl(method = 'repeatedcv', number = 5, repeats = 5)
+my_metric_bi <- 'Accuracy'
+```
+
+### Regularized regression with elastic net
+
+In the first model, we interact the categorical variable with all pair wise interactions of the continuous features.
+```{r, glmnet_bi_01, eval = FALSE}
+set.seed(2022)
+train(outcome ~ m * (x1 + x2 + x3 + x4 + v1 + v2 + v3 + v4 + v5) * (x1 + x2 + x3 + x4 + v1 + v2 + v3 + v4 + v5), data = df_derived,
+    method = 'glmnet',
+    metric = my_metric_bi,
+    preProcess = c("center", "scale"),
+    trControl = my_ctrl) %>% readr::write_rds("elastic_net_bi_01_model.rds")
+```
+
+In the second model, we use `mod_F`.
+```{r, glmnet_bi_02, eval = FALSE}
+set.seed(2022)
+train(outcome ~ (x1 + x2 + x3 + x4 + v1 + v2 + v3 + v4 + v5 + w + z + t) * (x1 + x2 + x3 + x4 + v1 + v2 + v3 + v4 + v5 + w + z + t), data = df_derived,
+    method = 'glmnet',
+    metric = my_metric_bi,
+    preProcess = c("center", "scale"),
+    trControl = my_ctrl) %>% readr::write_rds("elastic_net_bi_02_model.rds")
+```
+
+In the third model, we add the categorical features to `mod_H`.
+```{r, glmnet_bi_03, eval = FALSE}
+set.seed(2022)
+train(outcome ~ m * ((x1 + x2 + x3 + w) * (x1 + x2 + x3 + w) + x4 + v1 + v2 + v3 + v4 + v5 + z + I(z^2) + t + I(t^2)), data = df_derived,
+    method = 'glmnet',
+    metric = my_metric_bi,
+    preProcess = c("center", "scale"),
+    trControl = my_ctrl) %>% readr::write_rds("elastic_net_bi_03_model.rds")
+```
+
+```{r, reload_net_bi_model}
+enet_bi_01 <- readr::read_rds("elastic_net_bi_01_model.rds")
+enet_bi_02 <- readr::read_rds("elastic_net_bi_02_model.rds")
+enet_bi_03 <- readr::read_rds("elastic_net_bi_03_model.rds")
+```
+
+### Neural network
+
+In the first model, we use the interaction of the categorical input with all base continuous inputs.
+```{r, nnet_bi_01, eval = FALSE}
+set.seed(2022)
+train(outcome ~ m * (x1 + x2 + x3 + x4 + v1 + v2 + v3 + v4 + v5),
+      data = df_derived,
+      method = 'nnet',
+      metric = my_metric_bi,
+      preProcess = c("center", "scale"),
+      trControl = my_ctrl,
+      trace = FALSE) %>% readr::write_rds("neural_net_bi_01_model.rds")
+```
+In the second model, we add the categorical features to `mod_H`.
+```{r, nnet_bi_02, eval = FALSE}
+set.seed(2022)
+train(outcome ~ m * ((x1 + x2 + x3 + w) * (x1 + x2 + x3 + w) + x4 + v1 + v2 + v3 + v4 + v5 + z + I(z^2) + t + I(t^2)),
+      data = df_derived,
+      method = 'nnet',
+      metric = my_metric_bi,
+      preProcess = c("center", "scale"),
+      trControl = my_ctrl,
+      trace = FALSE) %>% readr::write_rds("neural_net_bi_02_model.rds")
+```
+
+```{r, reload_nnet_bi_model}
+nnet_bi_01 <- readr::read_rds("neural_net_bi_01_model.rds")
+nnet_bi_02 <- readr::read_rds("neural_net_bi_02_model.rds")
+```
+
+### Random forest
+
+In the first model, we use the interaction of the categorical input with all base continuous inputs.
+```{r, rf_bi_01, eval = FALSE}
+set.seed(2022)
+train(outcome ~ m * (x1 + x2 + x3 + x4 + v1 + v2 + v3 + v4 + v5),
+      data = df_derived,
+      method = 'rf',
+      metric = my_metric_bi,
+      trControl = my_ctrl,
+      importance=TRUE) %>% readr::write_rds("rf_bi_01_model.rds")
+```
+
+In the second model, we add the categorical features to `mod_H`.
+```{r, rf_bi_02, eval = FALSE}
+set.seed(2022)
+train(outcome ~ m * ((x1 + x2 + x3 + w) * (x1 + x2 + x3 + w) + x4 + v1 + v2 + v3 + v4 + v5 + z + I(z^2) + t + I(t^2)),
+      data = df_derived,
+      method = 'rf',
+      metric = my_metric_bi,
+      trControl = my_ctrl,
+      importance=TRUE) %>% readr::write_rds("rf_bi_02_model.rds")
+```
+
+```{r, reload_rf_bi_model}
+r_forest_bi_01 <- readr::read_rds("rf_bi_01_model.rds")
+r_forest_bi_02 <- readr::read_rds("rf_bi_02_model.rds")
+```
+
+### Gradient boosted tree
+In the first model, we use the interaction of the categorical input with all base continuous inputs.
+```{r, xgb_bi_01, eval = FALSE}
+set.seed(2022)
+train(outcome ~ m * (x1 + x2 + x3 + x4 + v1 + v2 + v3 + v4 + v5),
+      data = df_derived,
+      method = 'xgbTree',
+      metric = my_metric_bi,
+      trControl = my_ctrl,
+      verbosity = 0) %>% readr::write_rds("boosted_tree_bi_01_model.rds")
+```
+In the second model, we use the following settings.
+```{r, xgb_bi_02, eval = FALSE}
+set.seed(2022)
+train(outcome ~ (splines::ns(x1, 3) + x2 + x3) * (splines::ns(x1, 3) + x2 + x3) + x4 + v1 + v2 + v3 + v4 + v5 + splines::ns(w, 3) + splines::ns(z, 3) + splines::ns(t, 3),
+      data = df_derived,
+      method = 'xgbTree',
+      metric = my_metric_bi,
+      trControl = my_ctrl,
+      verbosity = 0) %>% readr::write_rds("boosted_tree_bi_02_model.rds")
+```
+
+```{r, reload_xgb_bi_model}
+xgb_bi_01 <- readr::read_rds("boosted_tree_bi_01_model.rds")
+xgb_bi_02 <- readr::read_rds("boosted_tree_bi_02_model.rds")
+```
+
+### Support Vector Machines
+
+We use pair wise continuous features.
+```{r, svm_bi, eval = FALSE}
+set.seed(2022)
+train(outcome ~ (x1 + x2 + x3 + x4 + v1 + v2 + v3 + v4 + v5 + w + z + t) * (x1 + x2 + x3 + x4 + v1 + v2 + v3 + v4 + v5 + w + z + t),
+      data = df_derived,
+      method = "svmLinear",
+      preProcess = c("center", "scale"),
+      trControl = my_ctrl) %>% readr::write_rds("support_vector_bi_model.rds")
+```
+
+```{r, reload_svm_bi_model}
+svm_bi <- readr::read_rds("support_vector_bi_model.rds")
+```
+
+### Multivariate Additive Regression Splines
+
+We use the following setting.
+```{r, mars_bi, eval = FALSE}
+set.seed(2022)
+train(outcome ~ m * (splines::ns(x1, 3) + x2 + x3) * (splines::ns(x1, 3) + x2 + x3) + x4 + v1 + v2 + v3 + v4 + v5 + splines::ns(w, 3) + splines::ns(z, 3) + splines::ns(t, 3),
+      data = df_derived,
+      method = 'earth',
+      metric = my_metric_bi,
+      trControl = my_ctrl) %>% readr::write_rds("mars_bi_model.rds")
+```
+
+```{r, reload_mars_bi_model}
+mars_bi <- readr::read_rds("mars_bi_model.rds")
+```
+
+
+### Identify the best model
+```{r, compare_accuracy}
+caret_Accuracy_compare <- resamples(list(ENET_01 = enet_bi_01,
+                                     ENET_02 = enet_bi_02,
+                                     ENET_03 = enet_bi_03,
+                                     NNET_01 = nnet_bi_01,
+                                     NNET_02 = nnet_bi_02,
+                                     RF_01 = r_forest_bi_01,
+                                     RF_02 = r_forest_bi_02,
+                                     XGB_01 = xgb_bi_01,
+                                     XGB_02 = xgb_bi_02,
+                                     SVM = svm_bi,
+                                     MARS = mars_bi))
+dotplot(caret_Accuracy_compare, metric = 'Accuracy')
+```
+
+<font color=Blue>
+We can see the `xgb_bi_02` is the best model we have.
+</font>

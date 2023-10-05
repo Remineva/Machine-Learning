@@ -1,0 +1,71 @@
+# **Interpretation and Optimization**
+
+## Regression
+
+In the RMSE chart, for a fixed model type, the model performance does improve when derived features in the "expanded feature" set are included.
+```{r, importance_top_3}
+plot(varImp(xgb_02))
+plot(varImp(mars_reg))
+plot(varImp(r_forest_02))
+```
+
+The best model is `xgb_02`. Combining the graph of `mars_reg` and `r_forest_02`, we could see `x1, z` and `w` are most important variables.
+```{r, graph_x1_best}
+df_derived %>%   ggplot(mapping = aes(x = x1, y = y)) +
+  geom_point(alpha=0.33, aes(color = m)) +
+  geom_smooth(formula = y ~ splines::ns(x, 3),
+              method = lm, aes(color = m, fill = m)) +
+  theme_bw()
+```
+```{r, graph_z_best}
+df_derived %>%   ggplot(mapping = aes(x = z, y = y)) +
+  geom_point(alpha=0.33, aes(color = m)) +
+  geom_smooth(formula = y ~ splines::ns(x, 3),
+              method = lm, aes(color = m, fill = m)) +
+  theme_bw()
+```
+```{r, graph_w_best}
+df_derived %>%   ggplot(mapping = aes(x = w, y = y)) +
+  geom_point(alpha=0.33, aes(color = m)) +
+  geom_smooth(formula = y ~ splines::ns(x, 3),
+              method = lm, aes(color = m, fill = m)) +
+  theme_bw()
+```
+
+Based on the visualization, `x1=0.2, z=2` will minimize the logit-transformed response. The optimal input settings do not vary across the values of categorical variables.
+
+## Classification
+In the Accuracy chart, for a fixed model type, the model performance does improve when derived features in the "expanded feature" set are included.
+```{r, importance_top_bi}
+plot(varImp(xgb_bi_02))
+plot(varImp(mars_bi))
+```
+The best model is `xgb_bi_02`. Combining the graph of `mars_bi`, we could see `x1, z` and `w` are most important variables.
+
+```{r, bi_best_x1}
+df_bi %>% ggplot(mapping = aes(x = x1, y = o)) +
+  geom_jitter(height = 0.02, width = 0, aes(color = m)) +
+  geom_smooth(formula = y ~ splines::ns(x, 3),
+              method = glm,
+              aes(color = m, fill = m),
+              method.args = list(family = 'binomial')) +
+  theme_bw()
+```
+```{r, bi_best_z}
+df_bi %>% ggplot(mapping = aes(x = z, y = o)) +
+  geom_jitter(height = 0.02, width = 0, aes(color = m)) +
+  geom_smooth(formula = y ~ splines::ns(x, 3),
+              method = glm,
+              aes(color = m, fill = m),
+              method.args = list(family = 'binomial')) +
+  theme_bw()
+```
+```{r, bi_best_w}
+df_bi %>% ggplot(mapping = aes(x = w, y = o)) +
+  geom_jitter(height = 0.02, width = 0, aes(color = m)) +
+  geom_smooth(formula = y ~ splines::ns(x, 3),
+              method = glm,
+              aes(color = m, fill = m),
+              method.args = list(family = 'binomial')) +
+  theme_bw()
+```

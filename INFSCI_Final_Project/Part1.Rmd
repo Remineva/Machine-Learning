@@ -1,0 +1,319 @@
+# **Exploration**
+
+## Read data
+
+The code chunk below reads in the final project data.  
+
+```{r, read_final_data}
+df <- readr::read_csv("fall2022_finalproject.csv", col_names = TRUE)
+```
+
+
+```{r, show_data_glimpse}
+df %>% glimpse()
+```
+
+## Modify data
+
+### Transform output
+```{r, trans_logit}
+df <- df %>% mutate(y = boot::logit(output), outcome = ifelse(output < 0.33, 'event', 'non_event'), outcome = factor(outcome, levels = c("event", "non_event"))) %>%  glimpse()
+```
+
+### Add derived features
+```{r, add_derived}
+df_derived <- df %>% mutate(x5 = 1-x1-x2-x3-x4, w = x2 / (x3 + x4), z = (x1 + x2) / (x4 + x5), t = v1 * v2) %>%  glimpse()
+```
+
+## Visualize the data
+
+### Visualize features
+```{r, vis_distribution}
+h_x1 <- df_derived %>% 
+  ggplot() +
+  geom_histogram(aes(x = x1), bins=20)
+h_x2 <- df_derived %>% 
+  ggplot() +
+  geom_histogram(aes(x = x2), bins=20)
+h_x3 <- df_derived %>% 
+  ggplot() +
+  geom_histogram(aes(x = x3), bins=20)
+h_x4 <- df_derived %>% 
+  ggplot() +
+  geom_histogram(aes(x = x4), bins=20)
+h_x5 <- df_derived %>% 
+  ggplot() +
+  geom_histogram(aes(x = x5), bins=20)
+h_v1 <- df_derived %>% 
+  ggplot() +
+  geom_histogram(aes(x = v1), bins=20)
+h_v2 <- df_derived %>% 
+  ggplot() +
+  geom_histogram(aes(x = v2), bins=20)
+h_v3 <- df_derived %>% 
+  ggplot() +
+  geom_histogram(aes(x = v3), bins=20)
+h_v4 <- df_derived %>% 
+  ggplot() +
+  geom_histogram(aes(x = v4), bins=20)
+h_v5 <- df_derived %>% 
+  ggplot() +
+  geom_histogram(aes(x = v5), bins=20)
+h_w <- df_derived %>% 
+  ggplot() +
+  geom_histogram(aes(x = w), bins=20)
+h_z <- df_derived %>% 
+  ggplot() +
+  geom_histogram(aes(x = z), bins=20)
+h_t <- df_derived %>% 
+  ggplot() +
+  geom_histogram(aes(x = t), bins=20)
+ggarrange(h_x1, h_x2, h_x3, h_x4, h_x5, h_v1, h_v2, h_v3, h_v4, h_v5, h_w, h_z, h_t, nrow = 4, ncol = 4) +
+  theme_bw()
+```
+```{r, vis_distribution_m}
+df_derived %>% 
+  ggplot() +
+  geom_bar(aes(x = m)) +
+  theme_bw()
+```
+
+### Visualize outputs
+```{r, vis_distribution_output}
+h_output <- df %>% 
+  ggplot() +
+  geom_histogram(aes(x = output), bins = 20)
+h_y <- df %>% 
+  ggplot() +
+  geom_histogram(aes(x = y), bins = 20)
+ggarrange(h_output, h_y, ncol = 2) +
+  theme_bw()
+```
+
+## Distribution with respect to `m`
+
+### Features with respect to `m`
+```{r, m_dis_x1}
+df_derived %>% 
+  ggplot() +
+  geom_histogram(aes(x = x1), bins=20) +
+  facet_wrap(~m) +
+  theme_bw()
+```
+```{r, m_dis_x2}
+df_derived %>% 
+  ggplot() +
+  geom_histogram(aes(x = x2), bins=20) +
+  facet_wrap(~m) +
+  theme_bw()
+```
+```{r, m_dis_x3}
+df_derived %>% 
+  ggplot() +
+  geom_histogram(aes(x = x3), bins=20) +
+  facet_wrap(~m) +
+  theme_bw()
+```
+```{r, m_dis_x4}
+df_derived %>% 
+  ggplot() +
+  geom_histogram(aes(x = x4), bins=20) +
+  facet_wrap(~m) +
+  theme_bw()
+```
+```{r, m_dis_x5}
+df_derived %>% 
+  ggplot() +
+  geom_histogram(aes(x = x5), bins=20) +
+  facet_wrap(~m) +
+  theme_bw()
+```
+```{r, m_dis_v1}
+df_derived %>% 
+  ggplot() +
+  geom_histogram(aes(x = v1), bins=20) +
+  facet_wrap(~m) +
+  theme_bw()
+```
+```{r, m_dis_v2}
+df_derived %>% 
+  ggplot() +
+  geom_histogram(aes(x = v2), bins=20) +
+  facet_wrap(~m) +
+  theme_bw()
+```
+```{r, m_dis_v3}
+df_derived %>% 
+  ggplot() +
+  geom_histogram(aes(x = v3), bins=20) +
+  facet_wrap(~m) +
+  theme_bw()
+```
+```{r, m_dis_v4}
+df_derived %>% 
+  ggplot() +
+  geom_histogram(aes(x = v4), bins=20) +
+  facet_wrap(~m) +
+  theme_bw()
+```
+```{r, m_dis_v5}
+df_derived %>% 
+  ggplot() +
+  geom_histogram(aes(x = v5), bins=20) +
+  facet_wrap(~m) +
+  theme_bw()
+```
+```{r, m_dis_w}
+df_derived %>% 
+  ggplot() +
+  geom_histogram(aes(x = w), bins=20) +
+  facet_wrap(~m) +
+  theme_bw()
+```
+```{r, m_dis_z}
+df_derived %>% 
+  ggplot() +
+  geom_histogram(aes(x = z), bins=20) +
+  facet_wrap(~m) +
+  theme_bw()
+```
+```{r, m_dis_t}
+df_derived %>% 
+  ggplot() +
+  geom_histogram(aes(x = t), bins=20) +
+  facet_wrap(~m) +
+  theme_bw()
+```
+
+<font color=Blue>
+There are no obvious differences in input values based on the discrete groups.
+</font> 
+
+### Output with respect to `m`
+```{r, m_dis_output}
+df_derived %>% 
+  ggplot() +
+  geom_histogram(aes(x = output), bins=20) +
+  facet_wrap(~m) +
+  theme_bw()
+```
+
+<font color=Blue>
+There are no obvious differences in `output` based on the discrete groups.
+</font> 
+
+## Relation between features
+```{r, cor_feature}
+df_derived %>% 
+  select(starts_with('x'), starts_with('v'), c(w, z, t)) %>% 
+  cor() %>% 
+  corrplot::corrplot(type = 'upper')
+```
+
+<font color=Blue>
+The derived features of course are correlated to the inputs. For the inputs part, `x1,x2,x3` have some correlations.
+</font> 
+
+## Relation between output and features
+```{r, relation}
+p_x1 <- df_derived %>% ggplot(mapping = aes(x = x1, y = y)) +
+  geom_point(alpha = 0.33)
+p_x2 <- df_derived %>% ggplot(mapping = aes(x = x2, y = y)) +
+  geom_point(alpha = 0.33)
+p_x3 <- df_derived %>% ggplot(mapping = aes(x = x3, y = y)) +
+  geom_point(alpha = 0.33)
+p_x4 <- df_derived %>% ggplot(mapping = aes(x = x4, y = y)) +
+  geom_point(alpha = 0.33)
+p_x5 <- df_derived %>% ggplot(mapping = aes(x = x5, y = y)) +
+  geom_point(alpha = 0.33)
+p_v1 <- df_derived %>% ggplot(mapping = aes(x = v1, y = y)) +
+  geom_point(alpha = 0.33)
+p_v2 <- df_derived %>% ggplot(mapping = aes(x = v2, y = y)) +
+  geom_point(alpha = 0.33)
+p_v3 <- df_derived %>% ggplot(mapping = aes(x = v3, y = y)) +
+  geom_point(alpha = 0.33)
+p_v4 <- df_derived %>% ggplot(mapping = aes(x = v4, y = y)) +
+  geom_point(alpha = 0.33)
+p_v5 <- df_derived %>% ggplot(mapping = aes(x = v5, y = y)) +
+  geom_point(alpha = 0.33)
+p_w <- df_derived %>% ggplot(mapping = aes(x = w, y = y)) +
+  geom_point(alpha = 0.33)
+p_z <- df_derived %>% ggplot(mapping = aes(x = z, y = y)) +
+  geom_point(alpha = 0.33)
+p_t <- df_derived %>% ggplot(mapping = aes(x = t, y = y)) +
+  geom_point(alpha = 0.33)
+p_m <- df_derived %>% ggplot(mapping = aes(x = m, y = y)) +
+  geom_point(alpha = 0.33)
+ggarrange(p_x1, p_x2, p_x3, p_x4, p_x5, nrow = 3, ncol=2) +
+  theme_bw()
+ggarrange(p_v1, p_v2, p_v3, p_v4, p_v5, nrow = 3, ncol=2) +
+  theme_bw()
+ggarrange(p_w, p_z, p_t, p_m, nrow = 2, ncol=2) +
+  theme_bw()
+```
+
+## Relation between binary outcome and features
+```{r, binary_graph}
+b_x1 <- df_derived %>% 
+  ggplot(mapping = aes(x = x1, y = outcome)) +
+  geom_jitter(height = 0.02, width = 0, alpha=0.15) +
+  theme_bw()
+b_x2 <- df_derived %>% 
+  ggplot(mapping = aes(x = x2, y = outcome)) +
+  geom_jitter(height = 0.02, width = 0, alpha=0.15) +
+  theme_bw()
+b_x3 <- df_derived %>% 
+  ggplot(mapping = aes(x = x3, y = outcome)) +
+  geom_jitter(height = 0.02, width = 0, alpha=0.15) +
+  theme_bw()
+b_x4 <- df_derived %>% 
+  ggplot(mapping = aes(x = x4, y = outcome)) +
+  geom_jitter(height = 0.02, width = 0, alpha=0.15) +
+  theme_bw()
+b_x5 <- df_derived %>% 
+  ggplot(mapping = aes(x = x5, y = outcome)) +
+  geom_jitter(height = 0.02, width = 0, alpha=0.15) +
+  theme_bw()
+b_v1 <- df_derived %>% 
+  ggplot(mapping = aes(x = v1, y = outcome)) +
+  geom_jitter(height = 0.02, width = 0, alpha=0.15) +
+  theme_bw()
+b_v2 <- df_derived %>% 
+  ggplot(mapping = aes(x = v2, y = outcome)) +
+  geom_jitter(height = 0.02, width = 0, alpha=0.15) +
+  theme_bw()
+b_v3 <- df_derived %>% 
+  ggplot(mapping = aes(x = v3, y = outcome)) +
+  geom_jitter(height = 0.02, width = 0, alpha=0.15) +
+  theme_bw()
+b_v4 <- df_derived %>% 
+  ggplot(mapping = aes(x = v4, y = outcome)) +
+  geom_jitter(height = 0.02, width = 0, alpha=0.15) +
+  theme_bw()
+b_v5 <- df_derived %>% 
+  ggplot(mapping = aes(x = v5, y = outcome)) +
+  geom_jitter(height = 0.02, width = 0, alpha=0.15) +
+  theme_bw()
+b_w <- df_derived %>% 
+  ggplot(mapping = aes(x = w, y = outcome)) +
+  geom_jitter(height = 0.02, width = 0, alpha=0.15) +
+  theme_bw()
+b_z <- df_derived %>% 
+  ggplot(mapping = aes(x = z, y = outcome)) +
+  geom_jitter(height = 0.02, width = 0, alpha=0.15) +
+  theme_bw()
+b_t <- df_derived %>% 
+  ggplot(mapping = aes(x = t, y = outcome)) +
+  geom_jitter(height = 0.02, width = 0, alpha=0.15) +
+  theme_bw()
+ggarrange(b_x1, b_x2, b_x3, b_x4, b_x5, nrow = 3, ncol = 2)
+ggarrange(b_v1, b_v2, b_v3, b_v4, b_v5, nrow = 3, ncol = 2)
+ggarrange(b_w, b_z, b_t, nrow = 2, ncol = 2)
+df_derived %>% 
+  ggplot(mapping = aes(x = m)) +
+  geom_bar(mapping = aes(fill = outcome),
+           position = 'fill') +
+  labs(y = 'group proportion') +
+  theme_bw()
+```
+

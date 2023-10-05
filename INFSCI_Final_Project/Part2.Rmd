@@ -1,0 +1,583 @@
+# **Regression**
+```{r, load_coef}
+library(coefplot)
+```
+
+
+## Linear models
+First we use `lm()` to fit linear models.
+
+### Base features
+`mod_1, mod_2` and `mod_3` are models using *base features*.
+
+All linear additive features:
+```{r, linear_additive_feature}
+mod_1 <- lm(y ~ x1 + x2 + x3 + x4 + v1 + v2 + v3 + v4 + v5 + m, data = df)
+```
+Interaction of the categorical input with all continuous inputs:
+```{r, interaction_cat}
+mod_2 <- lm(y ~ m * (x1 + x2 + x3 + x4 + v1 + v2 + v3 + v4 + v5), data = df)
+```
+All pair-wise interactions of the continuous inputs:
+```{r, linear_pairwise}
+mod_3 <- lm(y ~ (x1 + x2 + x3 + x4 + v1 + v2 + v3 + v4 + v5) * (x1 + x2 + x3 + x4 + v1 + v2 + v3 + v4 + v5), data = df)
+```
+
+### Expanded features
+`mod_4, mod_5` and `mod_6` are models using *expanded features*.
+
+Linear additive features:
+```{r, linear_additive_expand}
+mod_4 <- lm(y ~ x1 + x2 + x3 + x4 + v1 + v2 + v3 + v4 + v5 + m + w + z + t, data = df_derived)
+```
+Interaction of the categorical input with continuous features:
+```{r, interaction_cat_expand}
+mod_5 <- lm(y ~ m * (x1 + x2 + x3 + x4 + v1 + v2 + v3 + v4 + v5 + w + z + t), data = df_derived)
+```
+Pair-wise interactions between the continuous features:
+```{r, linear_pairwise_expand}
+mod_6 <- lm(y ~ (x1 + x2 + x3 + x4 + v1 + v2 + v3 + v4 + v5 + w + z + t) * (x1 + x2 + x3 + x4 + v1 + v2 + v3 + v4 + v5 + w + z + t), data = df_derived)
+```
+
+### Linear basis functions
+`mod_7, mod_8` and `mod_9` are models using *basis functions*.
+
+Linear additive features of 3 degree-of-freedom natural spline from `x`-features and `v`-features:
+```{r, linear_additive_lb}
+mod_7 <- lm(y ~ splines::ns(x1, 3) + splines::ns(x2, 3) + splines::ns(x3, 3) + splines::ns(x4, 3) + v1 + v2 + v3 + v4 + v5, data = df_derived)
+```
+Interaction of the categorical input with 3 degree-of-freedom natural spline from `x`-features and `v`-features:
+```{r, interaction_cat_lb}
+mod_8 <- lm(y ~ m * (splines::ns(x1, 3) + splines::ns(x2, 3) + splines::ns(x3, 3) + splines::ns(x4, 3) + v1 + v2 + v3 + v4 + v5), data = df_derived)
+```
+The linear sum of interactions between `x1, x2, x3, w` and other continuous features:
+```{r, interaction_cat_x_lb}
+mod_9 <- lm(y ~ ((x1 + x2 + x3 + w) * (x1 + x2 + x3 + w) + x4 + v1 + v2 + v3 + v4 + v5 + splines::ns(z, 3) + t), data = df_derived)
+```
+
+### Compare linear models
+```{r, extract_metric}
+extract_metrics <- function(mod, mod_name)
+{
+  broom::glance(mod) %>% mutate(mod_name = mod_name)
+}
+all_metrics <- purrr::map2_dfr(list(mod_1, mod_2, mod_3, mod_4, mod_5, mod_6, mod_7, mod_8, mod_9),
+                               as.character(1:9),
+                               extract_metrics)
+all_metrics %>% 
+  select(mod_name, df, r.squared, AIC, BIC) %>% 
+  pivot_longer(!c("mod_name", "df")) %>% 
+  ggplot(mapping = aes(x = mod_name, y = value)) +
+  geom_point(size = 5) +
+  facet_wrap(~name, scales = "free_y") +
+  theme_bw()
+```
+
+<font color=Blue>
+The `mod_6` has the best AIC and R-squared, which means it is the best model. `mod_9` also behaves well. Then `mod_7` is relatively good considering penalty from BIC.
+</font> 
+
+```{r, coefficient_summary_plot}
+mod_6 %>% coefplot::coefplot() +
+  theme_bw() +
+  theme(legend.position = 'none')
+
+mod_9 %>% coefplot::coefplot() +
+  theme_bw() +
+  theme(legend.position = 'none')
+
+mod_7 %>% coefplot::coefplot() +
+  theme_bw() +
+  theme(legend.position = 'none')
+```
+
+```{r, coefficient_summary}
+mod_6 %>% summary()
+mod_9 %>% summary()
+mod_7 %>% summary()
+```
+
+<font color=Blue>
+The coefficients of interactions with `w` in `mod_6` are significant. The coefficients of interactions among `x1, x2, x3` are significant in all three models. From these, we could see `x1,x2,x3` and `w` seem to be important.
+</font> 
+
+## Bayesian linear models
+
+Besides `mod_6`, we choose `mod_9` as the second model since it is obviously better than other from the metrics we have in previous step.
+
+We first create the design matrix following `mod_6`’s formula, and assign the object to the `X01` variable. Complete the `info_01` list by assigning the response to yobs and the design matrix to design_matrix. Specify the shared prior mean, mu_beta, to be 0, the shared prior standard deviation, tau_beta, as 100, and the rate parameter on the noise, sigma_rate, to be 1.
+
+### Create design matrix
+```{r, design_matrix_01}
+X01 <- model.matrix(y ~ (x1 + x2 + x3 + x4 + v1 + v2 + v3 + v4 + v5 + w + z + t) * (x1 + x2 + x3 + x4 + v1 + v2 + v3 + v4 + v5 + w + z + t), data = df_derived)
+
+info_01 <- list(
+  yobs = df_derived$y,
+  design_matrix = X01,
+  mu_beta = 0,
+  tau_beta = 100,
+  sigma_rate = 1
+)
+```
+We then do the same thing for `mod_9`.
+```{r, design_matrix_02}
+X02 <- model.matrix(y ~ ((x1 + x2 + x3 + w) * (x1 + x2 + x3 + w) + x4 + v1 + v2 + v3 + v4 + v5 + splines::ns(z, 3) + t), data = df_derived)
+
+info_02 <- list(
+  yobs = df_derived$y,
+  design_matrix = X02,
+  mu_beta = 0,
+  tau_beta = 100,
+  sigma_rate = 1
+)
+```
+
+### Laplace approximation
+```{r, lapace_logpost}
+lm_logpost <- function(unknowns, my_info)
+{
+  # specify the number of unknown beta parameters
+  length_beta <- ncol(my_info$design_matrix)
+  
+  # extract the beta parameters from the `unknowns` vector
+  beta_v <- unknowns[1:length_beta]
+  
+  # extract the unbounded noise parameter, varphi
+  lik_varphi <- unknowns[length_beta + 1]
+  
+  # back-transform from varphi to sigma
+  lik_sigma <- exp(lik_varphi)
+  
+  # extract design matrix
+  X <- my_info$design_matrix
+  
+  # calculate the linear predictor
+  mu <- as.vector( X %*% as.matrix(beta_v) )
+  
+  # evaluate the log-likelihood
+  log_lik <- sum(dnorm(x = my_info$yobs,
+                       mean = mu,
+                       sd = lik_sigma,
+                       log = TRUE))
+  
+  # evaluate the log-prior
+  log_prior_beta <- sum(dnorm(x = beta_v,
+                              mean = my_info$mu_beta,
+                              sd = my_info$tau_beta,
+                              log = TRUE))
+  
+  log_prior_sigma <- dexp(x = lik_sigma,
+                          rate = my_info$sigma_rate,
+                          log = TRUE)
+  
+  # add the mean trend prior and noise prior together
+  log_prior <- log_prior_beta + log_prior_sigma
+  
+  # account for the transformation
+  log_derive_adjust <- lik_varphi
+  
+  # sum together
+  log_lik + log_prior + log_derive_adjust
+}
+```
+
+```{r, my_laplace}
+my_laplace <- function(start_guess, logpost_func, ...)
+{
+  # code adapted from the `LearnBayes`` function `laplace()`
+  fit <- optim(start_guess,
+               logpost_func,
+               gr = NULL,
+               ...,
+               method = "BFGS",
+               hessian = TRUE,
+               control = list(fnscale = -1, maxit = 1001))
+  
+  mode <- fit$par
+  post_var_matrix <- -solve(fit$hessian)
+  p <- length(mode)
+  int <- p/2 * log(2 * pi) + 0.5 * log(det(post_var_matrix)) + logpost_func(mode, ...)
+  # package all of the results into a list
+  list(mode = mode,
+       var_matrix = post_var_matrix,
+       log_evidence = int,
+       converge = ifelse(fit$convergence == 0,
+                         "YES", 
+                         "NO"),
+       iter_counts = as.numeric(fit$counts[1]))
+}
+```
+
+```{r, laplace_model, eval = FALSE}
+my_laplace(rep(0, ncol(X01) + 1), lm_logpost, info_01) %>% readr::write_rds("laplace_01_model.rds")
+my_laplace(rep(0, ncol(X02) + 1), lm_logpost, info_02) %>% readr::write_rds("laplace_02_model.rds")
+```
+We have already saved models in `.rds` files. Here we just reload the models.
+```{r, laplace__load}
+laplace_01 <- readr::read_rds("laplace_01_model.rds")
+laplace_02 <- readr::read_rds("laplace_02_model.rds")
+```
+As shown below, the optimization schemes for both models converged.
+```{r, converge_laplace}
+laplace_01$converge
+laplace_02$converge
+```
+
+### Compare models from Laplace approximation
+```{r, log_evidence}
+exp(laplace_02$log_evidence - laplace_01$log_evidence)
+```
+<font color=Blue>
+A Bayes Factor greater than 1 represents there is more “evidence” to support the “numerator model” compared to the model in the denominator. As shown above the Bayes Factor is on the order of 1E80. This is a huge number! Essentially, the log-evidence (via the Bayes Factor) feels there is no reason to consider `mod_6` compared to `mod_9`.
+</font>
+```{r, plot_coef_laplace}
+viz_post_coefs <- function(post_means, post_sds, xnames)
+{
+  tibble::tibble(
+    mu = post_means,
+    sd = post_sds,
+    x = xnames
+  ) %>% 
+    mutate(x = factor(x, levels = xnames)) %>% 
+    ggplot(mapping = aes(x = x)) +
+    geom_hline(yintercept = 0, color = 'grey', linetype = 'dashed') +
+    geom_point(mapping = aes(y = mu)) +
+    geom_linerange(mapping = aes(ymin = mu - 2 * sd,
+                                 ymax = mu + 2 * sd,
+                                 group = x)) +
+    labs(x = 'feature', y = 'coefficient value') +
+    coord_flip() +
+    theme_bw()
+}
+
+viz_post_coefs(laplace_02$mode[1:ncol(X02)],
+               sqrt(diag(laplace_02$var_matrix)[1:ncol(X02)]),
+               colnames(X02))
+```
+
+### Noise
+```{r, laplace_post_sample}
+post_samples <- MASS::mvrnorm(n = 1e4,
+                mu = laplace_02$mode,
+                Sigma = laplace_02$var_matrix) %>% 
+    as.data.frame() %>% tibble::as_tibble() %>% 
+    purrr::set_names(c(sprintf("beta_%02d", 0:(ncol(X02)-1)), "varphi")) %>% 
+    mutate(sigma = exp(varphi))
+post_samples %>% summary()
+mod_9 %>% summary()
+```
+
+<font color=Blue>
+The residual standard error is 1.441 from `lm()`, which is quite similar to `sigma` whose mean is 1.429.
+</font>
+
+## Linear models predictions
+
+We use non-Bayesian models for the predictions. We choose `x1` to be the primary input and `w` as the facet variable.
+
+### Create grid
+We create a grid of input values where `x1` consists of 101 evenly spaced points between 0 and 0.62 and `w` is 6 evenly spaced points between 0 and 1. We use means for other continuous inputs.
+```{r, mean_continuous}
+means_inputs <- colMeans(select(df_derived, -c(m, outcome)))
+```
+
+```{r, create_grid}
+viz_grid <- expand.grid(x1 = seq(0, 0.62, length.out = 101),
+                        w = seq(0, 1, length.out = 6),
+                        x2 = means_inputs['x2'],
+                        x3 = means_inputs['x3'],
+                        x4 = means_inputs['x4'],
+                        v1 = means_inputs['v1'],
+                        v2 = means_inputs['v2'],
+                        v3 = means_inputs['v3'],
+                        v4 = means_inputs['v4'],
+                        v5 = means_inputs['v5'],
+                        z = means_inputs['z'],
+                        t = means_inputs['t'],
+                        KEEP.OUT.ATTRS = FALSE,
+                        stringsAsFactors = FALSE) %>% 
+  as.data.frame() %>% tibble::as_tibble()
+```
+### Predictions
+```{r, tidy_predict}
+tidy_predict <- function(mod, xnew)
+{
+  pred_df <- predict(mod, xnew, interval = "confidence") %>% 
+    as.data.frame() %>% tibble::as_tibble() %>% 
+    dplyr::select(pred = fit, ci_lwr = lwr, ci_upr = upr) %>% 
+    bind_cols(predict(mod, xnew, interval = 'prediction') %>% 
+                as.data.frame() %>% tibble::as_tibble() %>% 
+                dplyr::select(pred_lwr = lwr, pred_upr = upr))
+  
+  xnew %>% bind_cols(pred_df)
+}
+```
+
+```{r, model_tidy_predict, warning = FALSE}
+pred_lm_06 <- tidy_predict(mod_6, viz_grid)
+pred_lm_09 <- tidy_predict(mod_9, viz_grid)
+```
+
+```{r, graph_prediction_01}
+pred_lm_06 %>% 
+  ggplot(mapping = aes(x = x1)) +
+  geom_ribbon(mapping = aes(ymin = pred_lwr, ymax = pred_upr),
+              fill = 'orange') +
+  geom_ribbon(mapping = aes(ymin = ci_lwr, ymax = ci_upr),
+              fill = 'grey') +
+  geom_line(mapping = aes(y = pred),
+            color = 'black') +
+  coord_cartesian(ylim = c(-7, 7)) +
+  facet_wrap(~w, labeller = "label_both") +
+  theme_bw()
+```
+
+```{r, graph_prediction_02}
+pred_lm_09 %>% 
+  ggplot(mapping = aes(x = x1)) +
+  geom_ribbon(mapping = aes(ymin = pred_lwr, ymax = pred_upr),
+              fill = 'orange') +
+  geom_ribbon(mapping = aes(ymin = ci_lwr, ymax = ci_upr),
+              fill = 'grey') +
+  geom_line(mapping = aes(y = pred),
+            color = 'black') +
+  coord_cartesian(ylim = c(-7, 7)) +
+  facet_wrap(~w, labeller = "label_both") +
+  theme_bw()
+```
+
+<font color=Blue>
+The trends are consistent between the 2 selected models.
+</font>
+
+## Train/Tune with resampling
+
+### Linear models
+We use 5 fold cross-validation with 5 repeats to train the linear models.
+```{r, set_lm_control}
+my_ctrl <- trainControl(method = 'repeatedcv', number = 5, repeats = 5)
+```
+
+```{r, set_lm_metric}
+my_metric <- 'RMSE'
+```
+
+```{r, train_lm_01}
+# Additive features using "base feature" set
+set.seed(2022)
+mod_lm_1 <- train(y ~ x1 + x2 + x3 + x4 + v1 + v2 + v3 + v4 + v5 + m, 
+                        data = df,
+                        method = "lm",
+                        metric = my_metric,
+                        trControl = my_ctrl)
+
+```
+
+```{r, train_lm_02}
+# Additive features using "expanded feature" set
+set.seed(2022)
+mod_lm_2 <- train(y ~ x1 + x2 + x3 + x4 + v1 + v2 + v3 + v4 + v5 + m + w + z + t, 
+                        data = df_derived,
+                        method = "lm",
+                        metric = my_metric,
+                        trControl = my_ctrl)
+
+```
+
+```{r, train_lm_03, warning = FALSE}
+# Pair-wise interactions between the continuous features
+set.seed(2022)
+mod_lm_3 <- train(y ~ (x1 + x2 + x3 + x4 + v1 + v2 + v3 + v4 + v5 + w + z + t) * (x1 + x2 + x3 + x4 + v1 + v2 + v3 + v4 + v5 + w + z + t), 
+                        data = df_derived,
+                        method = "lm",
+                        metric = my_metric,
+                        trControl = my_ctrl)
+
+```
+
+```{r, train_lm_04}
+# Own model
+set.seed(2022)
+mod_lm_4 <- train(y ~ ((x1 + x2 + x3 + w) * (x1 + x2 + x3 + w) + x4 + v1 + v2 + v3 + v4 + v5 + splines::ns(z, 3) + t), 
+                        data = df_derived,
+                        method = "lm",
+                        metric = my_metric,
+                        trControl = my_ctrl)
+
+```
+
+### Regularized regression with elastic net
+
+In the first model, we interact the categorical variable with all pair wise interactions of the continuous features.
+```{r, glmnet_01, eval = FALSE}
+set.seed(2022)
+train( y ~ m * (x1 + x2 + x3 + x4 + v1 + v2 + v3 + v4 + v5) * (x1 + x2 + x3 + x4 + v1 + v2 + v3 + v4 + v5), data = df_derived,
+    method = 'glmnet',
+    metric = my_metric,
+    preProcess = c("center", "scale"),
+    trControl = my_ctrl) %>% readr::write_rds("elastic_net_01_model.rds")
+```
+In the second model, we add the categorical features to `mod_6`.
+```{r, glmnet_02, eval = FALSE}
+set.seed(2022)
+train( y ~ m * (x1 + x2 + x3 + x4 + v1 + v2 + v3 + v4 + v5 + w + z + t) * (x1 + x2 + x3 + x4 + v1 + v2 + v3 + v4 + v5 + w + z + t), data = df_derived,
+    method = 'glmnet',
+    metric = my_metric,
+    preProcess = c("center", "scale"),
+    trControl = my_ctrl) %>% readr::write_rds("elastic_net_02_model.rds")
+```
+
+In the third model, we add the categorical features to `mod_9`.
+```{r, glmnet_03, eval = FALSE}
+set.seed(2022)
+train( y ~ m * ((x1 + x2 + x3 + w) * (x1 + x2 + x3 + w) + x4 + v1 + v2 + v3 + v4 + v5 + splines::ns(z, 3) + t), data = df_derived,
+    method = 'glmnet',
+    metric = my_metric,
+    preProcess = c("center", "scale"),
+    trControl = my_ctrl) %>% readr::write_rds("elastic_net_03_model.rds")
+```
+
+```{r, reload_net_model}
+enet_01 <- readr::read_rds("elastic_net_01_model.rds")
+enet_02 <- readr::read_rds("elastic_net_02_model.rds")
+enet_03 <- readr::read_rds("elastic_net_03_model.rds")
+```
+
+### Neural network
+In the first model, we use the interaction of the categorical input with all base continuous inputs.
+```{r, nnet_01, eval = FALSE}
+set.seed(2022)
+train(y ~ m * (x1 + x2 + x3 + x4 + v1 + v2 + v3 + v4 + v5),
+      data = df_derived,
+      method = 'nnet',
+      metric = my_metric,
+      preProcess = c("center", "scale"),
+      trControl = my_ctrl,
+      trace = FALSE) %>% readr::write_rds("neural_net_01_model.rds")
+```
+In the second model, we add the categorical features to `mod_9`.
+```{r, nnet_02, eval = FALSE}
+set.seed(2022)
+train(y ~ m * ((x1 + x2 + x3 + w) * (x1 + x2 + x3 + w) + x4 + v1 + v2 + v3 + v4 + v5 + splines::ns(z, 3) + t),
+      data = df_derived,
+      method = 'nnet',
+      metric = my_metric,
+      preProcess = c("center", "scale"),
+      trControl = my_ctrl,
+      trace = FALSE) %>% readr::write_rds("neural_net_02_model.rds")
+```
+
+```{r, reload_nnet_model}
+nnet_01 <- readr::read_rds("neural_net_01_model.rds")
+nnet_02 <- readr::read_rds("neural_net_02_model.rds")
+```
+
+### Random forest
+In the first model, we use the interaction of the categorical input with all base continuous inputs.
+```{r, rf_01, eval = FALSE}
+set.seed(2022)
+train(y ~ m * (x1 + x2 + x3 + x4 + v1 + v2 + v3 + v4 + v5),
+      data = df_derived,
+      method = 'rf',
+      metric = my_metric,
+      trControl = my_ctrl,
+      importance=TRUE) %>% readr::write_rds("rf_01_model.rds")
+```
+In the second model, we use the setting in `mod_9`.
+```{r, rf_02, eval = FALSE}
+set.seed(2022)
+train(y ~ ((x1 + x2 + x3 + w) * (x1 + x2 + x3 + w) + x4 + v1 + v2 + v3 + v4 + v5 + splines::ns(z, 3) + t),
+      data = df_derived,
+      method = 'rf',
+      metric = my_metric,
+      trControl = my_ctrl,
+      importance=TRUE) %>% readr::write_rds("rf_02_model.rds")
+```
+
+```{r, reload_rf_model}
+r_forest_01 <- readr::read_rds("rf_01_model.rds")
+r_forest_02 <- readr::read_rds("rf_02_model.rds")
+```
+
+### Gradient boosted tree
+In the first model, we use the interaction of the categorical input with all base continuous inputs.
+```{r, xgb_01, eval = FALSE}
+set.seed(2022)
+train(y ~ m * (x1 + x2 + x3 + x4 + v1 + v2 + v3 + v4 + v5),
+      data = df_derived,
+      method = 'xgbTree',
+      metric = my_metric,
+      trControl = my_ctrl,
+      verbosity = 0) %>% readr::write_rds("boosted_tree_01_model.rds")
+```
+In the following settings.
+```{r, xgb_02, eval = FALSE}
+set.seed(2022)
+train(y ~ (splines::ns(x1, 3) + x2 + x3) * (splines::ns(x1, 3) + x2 + x3) + splines::ns(w, 3) + splines::ns(z, 3) + splines::ns(t, 3),
+      data = df_derived,
+      method = 'xgbTree',
+      metric = my_metric,
+      trControl = my_ctrl,
+      verbosity = 0) %>% readr::write_rds("boosted_tree_02_model.rds")
+```
+
+```{r, reload_xgb_model}
+xgb_01 <- readr::read_rds("boosted_tree_01_model.rds")
+xgb_02 <- readr::read_rds("boosted_tree_02_model.rds")
+```
+
+### Support Vector Machines
+
+We use pair wise continuous features.
+```{r, svm_reg, eval = FALSE}
+set.seed(2022)
+train(y ~ (x1 + x2 + x3 + x4 + v1 + v2 + v3 + v4 + v5 + w + z + t) * (x1 + x2 + x3 + x4 + v1 + v2 + v3 + v4 + v5 + w + z + t),
+      data = df_derived,
+      method = "svmLinear",
+      preProcess = c("center", "scale"),
+      trControl = my_ctrl) %>% readr::write_rds("support_vector_reg_model.rds")
+```
+
+```{r, reload_svm_reg_model}
+svm_reg <- readr::read_rds("support_vector_reg_model.rds")
+```
+
+### Multivariate Additive Regression Splines
+
+We use the following setting.
+```{r, mars_reg, eval = FALSE}
+set.seed(2022)
+train(y ~ (splines::ns(x1, 3) + x2 + x3) * (splines::ns(x1, 3) + x2 + x3) + splines::ns(w, 3) + splines::ns(z, 3) + splines::ns(t, 3),
+      data = df_derived,
+      method = 'earth',
+      metric = my_metric,
+      trControl = my_ctrl) %>% readr::write_rds("mars_reg_model.rds")
+```
+
+```{r, reload_mars_reg_model}
+mars_reg <- readr::read_rds("mars_reg_model.rds")
+```
+
+### Identify the best model
+```{r, compare_RMSE_01}
+caret_RMSE_compare <- resamples(list(LM_01 = mod_lm_1,
+                                     LM_02 = mod_lm_2,
+                                     LM_03 = mod_lm_3,
+                                     LM_04 = mod_lm_4,
+                                     ENET_01 = enet_01,
+                                     ENET_02 = enet_02,
+                                     ENET_03 = enet_03,
+                                     NNET_01 = nnet_01,
+                                     NNET_02 = nnet_02,
+                                     RF_01 = r_forest_01,
+                                     RF_02 = r_forest_02,
+                                     XGB_01 = xgb_01,
+                                     XGB_02 = xgb_02,
+                                     SVM = svm_reg,
+                                     MARS = mars_reg))
+dotplot(caret_RMSE_compare, metric = 'RMSE')
+```
+
+<font color=Blue>
+We can see the `xgb_02` is the best model we have.
+</font>
